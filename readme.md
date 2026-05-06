@@ -1,6 +1,6 @@
 # core-shared
 
-Shared Go packages used across ECQ Core services (core-binary-analysis, core-orchestration, core-binary-remediation, core-binary-assessment, core-vulnerability, core-binary-scope, core-agent).
+Shared Go packages used across KhaiCode Core services (core-binary-analysis, core-orchestration, core-binary-remediation, core-binary-assessment, core-vulnerability, core-binary-scope, core-agent).
 
 Module path: `github.com/khaicode-xyz/core-shared`
 

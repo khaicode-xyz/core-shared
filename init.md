@@ -18,7 +18,7 @@ git tag v0.1.0
 git push origin v0.1.0
 
 -- commit
-cd core-shared && git add . && git commit -m "Add HTTPClient + DialGRPC base helpers" && git tag v0.2.0 && git push origin main v0.2.0
+cd core-shared && git add . && git commit -m "Edit logger" && git tag v0.2.2 && git push origin main v0.2.2
 
 -- service
 go get github.com/khaicode-xyz/core-shared@v0.2.0 && go mod tidy
