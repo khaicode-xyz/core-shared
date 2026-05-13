@@ -1,5 +1,5 @@
-// Package telemetry initializes OpenTelemetry traces + metrics and exports
-// them to a SignOz-compatible OTLP/gRPC endpoint.
+// Package telemetry initializes OpenTelemetry traces, metrics and logs and
+// exports them to a SignOz-compatible OTLP/gRPC endpoint.
 //
 // Usage:
 //
@@ -18,10 +18,13 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	otellog "go.opentelemetry.io/otel/log/global"
 	"go.opentelemetry.io/otel/propagation"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -41,8 +44,8 @@ type Config struct {
 
 type ShutdownFunc func(context.Context) error
 
-// Init wires OTLP exporters for traces and metrics and installs them as the
-// global providers. Returns a shutdown that flushes and closes exporters.
+// Init wires OTLP exporters for traces, metrics and logs and installs them as
+// the global providers. Returns a shutdown that flushes and closes exporters.
 func Init(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, error) {
 	if cfg.Endpoint == "" {
 		logger.Info("signoz disabled (SIGNOZ_ENDPOINT empty)")
@@ -62,7 +65,7 @@ func Init(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, e
 		return nil, fmt.Errorf("build otel resource: %w", err)
 	}
 
-	dialOpts := []otlptracegrpc.Option{
+	traceOpts := []otlptracegrpc.Option{
 		otlptracegrpc.WithEndpoint(cfg.Endpoint),
 		otlptracegrpc.WithTimeout(10 * time.Second),
 	}
@@ -70,15 +73,22 @@ func Init(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, e
 		otlpmetricgrpc.WithEndpoint(cfg.Endpoint),
 		otlpmetricgrpc.WithTimeout(10 * time.Second),
 	}
+	logOpts := []otlploggrpc.Option{
+		otlploggrpc.WithEndpoint(cfg.Endpoint),
+		otlploggrpc.WithTimeout(10 * time.Second),
+	}
 	if cfg.Insecure {
-		dialOpts = append(dialOpts, otlptracegrpc.WithInsecure())
+		traceOpts = append(traceOpts, otlptracegrpc.WithInsecure())
 		metricOpts = append(metricOpts, otlpmetricgrpc.WithInsecure())
+		logOpts = append(logOpts, otlploggrpc.WithInsecure())
 	} else {
 		creds := credentials.NewTLS(nil)
-		dialOpts = append(dialOpts, otlptracegrpc.WithDialOption(grpc.WithTransportCredentials(creds)))
+		traceOpts = append(traceOpts, otlptracegrpc.WithDialOption(grpc.WithTransportCredentials(creds)))
 		metricOpts = append(metricOpts, otlpmetricgrpc.WithDialOption(grpc.WithTransportCredentials(creds)))
+		logOpts = append(logOpts, otlploggrpc.WithDialOption(grpc.WithTransportCredentials(creds)))
 	}
-	traceExp, err := otlptrace.New(ctx, otlptracegrpc.NewClient(dialOpts...))
+
+	traceExp, err := otlptrace.New(ctx, otlptracegrpc.NewClient(traceOpts...))
 	if err != nil {
 		return nil, fmt.Errorf("create otlp trace exporter: %w", err)
 	}
@@ -87,6 +97,13 @@ func Init(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, e
 	if err != nil {
 		_ = traceExp.Shutdown(ctx)
 		return nil, fmt.Errorf("create otlp metric exporter: %w", err)
+	}
+
+	logExp, err := otlploggrpc.New(ctx, logOpts...)
+	if err != nil {
+		_ = traceExp.Shutdown(ctx)
+		_ = metricExp.Shutdown(ctx)
+		return nil, fmt.Errorf("create otlp log exporter: %w", err)
 	}
 
 	sampler := sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SampleRate))
@@ -103,6 +120,12 @@ func Init(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, e
 	)
 	otel.SetMeterProvider(mp)
 
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+		sdklog.WithResource(res),
+	)
+	otellog.SetLoggerProvider(lp)
+
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{}, propagation.Baggage{},
 	))
@@ -117,6 +140,7 @@ func Init(ctx context.Context, cfg Config, logger *slog.Logger) (ShutdownFunc, e
 		return errors.Join(
 			tp.Shutdown(shutdownCtx),
 			mp.Shutdown(shutdownCtx),
+			lp.Shutdown(shutdownCtx),
 		)
 	}, nil
 }

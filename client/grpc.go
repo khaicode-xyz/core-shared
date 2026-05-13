@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/khaicode-xyz/core-shared/middleware"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -33,6 +34,8 @@ func DialGRPC(ctx context.Context, cfg GRPCDialConfig, logger *slog.Logger, extr
 
 	opts := []grpc.DialOption{
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		grpc.WithChainUnaryInterceptor(middleware.UnaryClientRequestID()),
+		grpc.WithChainStreamInterceptor(middleware.StreamClientRequestID()),
 	}
 	if cfg.Insecure {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))

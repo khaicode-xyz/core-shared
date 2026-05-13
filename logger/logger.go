@@ -21,10 +21,12 @@ func New(serviceName, serviceCode, env string) *slog.Logger {
 		level = slog.LevelDebug
 	}
 
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	stdoutHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		Level:     level,
 		AddSource: env == "development",
 	})
+
+	handler := newFanoutHandler(stdoutHandler, newOtelHandler(serviceName))
 
 	return slog.New(handler).With(
 		slog.String("service.name", serviceName),
