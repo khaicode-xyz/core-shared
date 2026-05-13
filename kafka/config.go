@@ -58,6 +58,9 @@ func (c *Config) Transport() *kafka.Transport {
 }
 
 func (c *Config) buildSASLMechanism() sasl.Mechanism {
+	if c.Protocol == "" || strings.EqualFold(c.Protocol, "PLAINTEXT") {
+		return nil
+	}
 	if c.Username == "" || c.Password == "" {
 		return nil
 	}
